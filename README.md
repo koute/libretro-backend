@@ -21,6 +21,9 @@ As always, contributions are welcome!
 Add this to your `Cargo.toml`:
 
 ```toml
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 libretro-backend = "0.1"
 ```
