@@ -1,0 +1,15 @@
+[package]
+name = "libretro-backend"
+version = "0.1.0"
+authors = ["Jan Bujak <j@exia.io>"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/koute/libretro-backend"
+homepage = "https://github.com/koute/libretro-backend"
+description = """
+Idiomatic Rust API bindings to the libretro API
+"""
+
+[dependencies]
+"libc" = "0.2"
+"libretro-sys" = "0.1"
