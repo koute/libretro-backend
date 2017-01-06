@@ -456,10 +456,12 @@ pub unsafe fn initialize( backend: Box< Backend > ) {
 
 #[macro_export]
 macro_rules! libretro_backend {
-    ($backend: expr) => (
+    ($backend: path) => (
         #[no_mangle]
         pub extern "C" fn retro_init() {
-            let backend = $backend;
+            use $backend as backend;
+
+            let backend = Box::new(backend::new());
             unsafe {
                 $crate::initialize( backend );
             }
