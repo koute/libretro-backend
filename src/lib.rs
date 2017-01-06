@@ -449,20 +449,20 @@ fn instance() -> &'static mut Retro {
 }
 
 #[doc(hidden)]
-pub unsafe fn initialize( backend: Box< Backend > ) {
-    instance().backend = Some( backend );
+pub unsafe fn initialize< T: 'static + Backend + Default >() {
+    let backend = T::default();
+    instance().backend = Some( Box::new( backend ) );
     instance().on_initialize();
 }
 
 #[macro_export]
 macro_rules! libretro_backend {
-    ($backend: expr) => (
+    ($backend: path) => (
         #[doc(hidden)]
         #[no_mangle]
         pub extern "C" fn retro_init() {
-            let backend = $backend;
             unsafe {
-                $crate::initialize( backend );
+                $crate::initialize::< $backend >();
             }
         }
     )
