@@ -457,6 +457,7 @@ pub unsafe fn initialize( backend: Box< Backend > ) {
 #[macro_export]
 macro_rules! libretro_backend {
     ($backend: expr) => (
+        #[doc(hidden)]
         #[no_mangle]
         pub extern "C" fn retro_init() {
             let backend = $backend;
@@ -495,36 +496,43 @@ macro_rules! abort_on_panic {
     })
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_environment( callback: libretro_sys::EnvironmentFn ) {
     set_callback!( instance().environment_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh( callback: libretro_sys::VideoRefreshFn ) {
     set_callback!( instance().video_refresh_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_audio_sample( callback: libretro_sys::AudioSampleFn ) {
     set_callback!( instance().audio_sample_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_audio_sample_batch( callback: libretro_sys::AudioSampleBatchFn ) {
     set_callback!( instance().audio_sample_batch_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_input_poll( callback: libretro_sys::InputPollFn ) {
     set_callback!( instance().input_poll_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_input_state( callback: libretro_sys::InputStateFn ) {
     set_callback!( instance().input_state_callback, callback );
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_deinit() {
     let _ = panic::catch_unwind(|| {
@@ -538,11 +546,13 @@ pub extern "C" fn retro_deinit() {
     }
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_api_version() -> libc::c_uint {
     return libretro_sys::API_VERSION;
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_get_system_info( info: *mut libretro_sys::SystemInfo ) {
     assert!( info != ptr::null_mut() );
@@ -554,6 +564,7 @@ pub extern "C" fn retro_get_system_info( info: *mut libretro_sys::SystemInfo ) {
     });
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_get_system_av_info( info: *mut libretro_sys::SystemAvInfo ) {
     assert!( info != ptr::null_mut() );
@@ -565,10 +576,12 @@ pub extern "C" fn retro_get_system_av_info( info: *mut libretro_sys::SystemAvInf
     });
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_set_controller_port_device( _: libc::c_uint, _: libc::c_uint ) {
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_reset() {
     abort_on_panic!({
@@ -576,6 +589,7 @@ pub extern "C" fn retro_reset() {
     });
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_run() {
     abort_on_panic!({
@@ -583,29 +597,35 @@ pub extern "C" fn retro_run() {
     });
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> libc::size_t {
     0
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_serialize( _: *mut libc::c_void, _: libc::size_t ) -> bool {
     false
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_unserialize( _: *const libc::c_void, _: libc::size_t ) -> bool {
     false
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_cheat_reset() {
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_cheat_set( _: libc::c_uint, _: bool, _: *const libc::c_char ) {
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_load_game( game: *const libretro_sys::GameInfo ) -> bool {
     if game == ptr::null() {
@@ -623,11 +643,13 @@ pub extern "C" fn retro_load_game( game: *const libretro_sys::GameInfo ) -> bool
     })
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_load_game_special( _: libc::c_uint, _: *const libretro_sys::GameInfo, _: libc::size_t ) -> bool {
     false
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_unload_game() {
     abort_on_panic!({
@@ -635,6 +657,7 @@ pub extern "C" fn retro_unload_game() {
     });
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_get_region() -> libc::c_uint {
     abort_on_panic!({
@@ -642,11 +665,13 @@ pub extern "C" fn retro_get_region() -> libc::c_uint {
     })
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_get_memory_data( _: libc::c_uint ) -> *mut libc::c_void {
     ptr::null_mut()
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn retro_get_memory_size( _: libc::c_uint ) -> libc::size_t {
     0
