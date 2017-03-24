@@ -13,3 +13,9 @@ Idiomatic Rust API bindings to the libretro API
 [dependencies]
 "libc" = "0.2"
 "libretro-sys" = "0.1"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
