@@ -194,7 +194,7 @@ pub enum JoypadButton {
     R3
 }
 
-pub trait Backend: Default {
+pub trait Core: Default {
     fn info() -> CoreInfo;
     fn on_load_game( &mut self, game_data: GameData ) -> LoadGameResult;
     fn on_unload_game( &mut self ) -> GameData;
@@ -205,14 +205,14 @@ pub trait Backend: Default {
 static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
 
 #[doc(hidden)]
-pub struct Retro< B: Backend > {
+pub struct Retro< B: Core > {
     video_refresh_callback: Option< libretro_sys::VideoRefreshFn >,
     audio_sample_callback: Option< libretro_sys::AudioSampleFn >,
     audio_sample_batch_callback: Option< libretro_sys::AudioSampleBatchFn >,
     input_poll_callback: Option< libretro_sys::InputPollFn >,
     input_state_callback: Option< libretro_sys::InputStateFn >,
 
-    backend: B,
+    core: B,
 
     is_game_loaded: bool,
     av_info: AudioVideoInfo,
@@ -231,8 +231,8 @@ macro_rules! set_callback {
     )
 }
 
-impl< B: Backend > Retro< B > {
-    fn new( backend: B ) -> Self {
+impl< B: Core > Retro< B > {
+    fn new( core: B ) -> Self {
         Retro {
             video_refresh_callback: None,
             audio_sample_callback: None,
@@ -240,7 +240,7 @@ impl< B: Backend > Retro< B > {
             input_poll_callback: None,
             input_state_callback: None,
 
-            backend: backend,
+            core: core,
 
             is_game_loaded: false,
             av_info: AudioVideoInfo::new(),
@@ -320,7 +320,7 @@ impl< B: Backend > Retro< B > {
     }
 
     pub fn on_reset( &mut self ) {
-        self.backend.on_reset();
+        self.core.on_reset();
     }
 
     pub fn on_load_game( &mut self, game_info: *const libretro_sys::GameInfo ) -> bool {
@@ -363,7 +363,7 @@ impl< B: Backend > Retro< B > {
             }
         };
 
-        let result = self.backend.on_load_game( game_data );
+        let result = self.core.on_load_game( game_data );
         match result {
             LoadGameResult::Success( av_info ) => {
                 self.av_info = av_info;
@@ -403,7 +403,7 @@ impl< B: Backend > Retro< B > {
             self.input_poll_callback.unwrap()();
         }
 
-        self.backend.on_run( &mut handle );
+        self.core.on_run( &mut handle );
 
         self.total_audio_samples_uploaded += handle.audio_samples_uploaded;
         let required_audio_sample_count_per_frame = (self.av_info.audio_sample_rate / self.av_info.frames_per_second) * 2.0;
@@ -438,7 +438,7 @@ impl< B: Backend > Retro< B > {
             return;
         }
 
-        let _ = self.backend.on_unload_game();
+        let _ = self.core.on_unload_game();
     }
 
     pub fn on_get_region( &mut self ) -> libc::c_uint {
@@ -517,15 +517,15 @@ impl RuntimeHandle {
 }
 
 #[doc(hidden)]
-pub fn construct< T: 'static + Backend >() -> Retro< T > {
+pub fn construct< T: 'static + Core >() -> Retro< T > {
     Retro::new( T::default() )
 }
 
 #[macro_export]
-macro_rules! libretro_backend {
-    ($backend: path) => (
+macro_rules! libretro_core {
+    ($core: path) => (
         #[doc(hidden)]
-        static mut LIBRETRO_INSTANCE: *mut $crate::Retro< $backend > = 0 as *mut $crate::Retro< $backend >;
+        static mut LIBRETRO_INSTANCE: *mut $crate::Retro< $core > = 0 as *mut $crate::Retro< $core >;
 
         #[doc(hidden)]
         #[no_mangle]
@@ -537,7 +537,7 @@ macro_rules! libretro_backend {
         #[no_mangle]
         pub unsafe extern "C" fn retro_init() {
             assert_eq!( LIBRETRO_INSTANCE, 0 as *mut _ );
-            let retro = $crate::construct::< $backend >();
+            let retro = $crate::construct::< $core >();
             LIBRETRO_INSTANCE = Box::into_raw( Box::new( retro ) );
         }
 
@@ -553,7 +553,7 @@ macro_rules! libretro_backend {
         #[doc(hidden)]
         #[no_mangle]
         pub unsafe extern "C" fn retro_set_environment( callback: $crate::libretro_sys::EnvironmentFn ) {
-            $crate::Retro::< $backend >::on_set_environment( callback )
+            $crate::Retro::< $core >::on_set_environment( callback )
         }
 
         #[doc(hidden)]
@@ -594,7 +594,7 @@ macro_rules! libretro_backend {
         #[doc(hidden)]
         #[no_mangle]
         pub extern "C" fn retro_get_system_info( info: *mut $crate::libretro_sys::SystemInfo ) {
-            $crate::Retro::< $backend >::on_get_system_info( info )
+            $crate::Retro::< $core >::on_get_system_info( info )
         }
 
         #[doc(hidden)]
