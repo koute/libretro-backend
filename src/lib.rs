@@ -1,12 +1,13 @@
-extern crate libc;
-extern crate libretro_sys;
+#[doc(hidden)]
+pub extern crate libc;
+#[doc(hidden)]
+pub extern crate libretro_sys;
 
 use std::mem;
 use std::ptr;
 use std::slice;
 use std::ffi::{CStr, CString};
 use std::cmp::max;
-use std::panic;
 
 pub use libretro_sys::{PixelFormat, Region};
 
@@ -193,57 +194,63 @@ pub enum JoypadButton {
     R3
 }
 
-pub trait Backend {
-    fn on_initialize( &mut self ) -> CoreInfo;
+pub trait Backend: Default {
+    fn info() -> CoreInfo;
     fn on_load_game( &mut self, game_data: GameData ) -> LoadGameResult;
     fn on_unload_game( &mut self ) -> GameData;
-    fn on_destroy( &mut self );
     fn on_run( &mut self, handle: &mut RuntimeHandle );
     fn on_reset( &mut self );
 }
 
-struct Retro {
-    environment_callback: Option< libretro_sys::EnvironmentFn >,
+static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
+
+#[doc(hidden)]
+pub struct Retro< B: Backend > {
     video_refresh_callback: Option< libretro_sys::VideoRefreshFn >,
     audio_sample_callback: Option< libretro_sys::AudioSampleFn >,
     audio_sample_batch_callback: Option< libretro_sys::AudioSampleBatchFn >,
     input_poll_callback: Option< libretro_sys::InputPollFn >,
     input_state_callback: Option< libretro_sys::InputStateFn >,
 
-    backend: Option< Box< Backend > >,
+    backend: B,
 
     is_game_loaded: bool,
-    core_info: CoreInfo,
     av_info: AudioVideoInfo,
     total_audio_samples_uploaded: usize
 }
 
-impl Retro {
-    fn new() -> Retro {
+macro_rules! set_callback {
+    ($output: expr, $input: expr) => (
+        unsafe {
+            if $input == mem::transmute( 0 as usize ) {
+                $output = None;
+            } else {
+                $output = Some( $input );
+            }
+        }
+    )
+}
+
+impl< B: Backend > Retro< B > {
+    fn new( backend: B ) -> Self {
         Retro {
-            environment_callback: None,
             video_refresh_callback: None,
             audio_sample_callback: None,
             audio_sample_batch_callback: None,
             input_poll_callback: None,
             input_state_callback: None,
 
-            backend: None,
+            backend: backend,
 
             is_game_loaded: false,
-            core_info: CoreInfo::new( "", "" ),
             av_info: AudioVideoInfo::new(),
             total_audio_samples_uploaded: 0
         }
     }
 
-    fn backend_mut( &mut self ) -> &mut Backend {
-        &mut **self.backend.as_mut().unwrap()
-    }
-
     #[must_use]
     unsafe fn call_environment< T >( &mut self, command: libc::c_uint, pointer: &T ) -> Result< (), () > {
-        let ok = self.environment_callback.unwrap()( command, mem::transmute( pointer ) );
+        let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
         if ok {
             Ok(())
         } else {
@@ -251,19 +258,55 @@ impl Retro {
         }
     }
 
-    fn on_initialize( &mut self ) {
-        self.core_info = self.backend_mut().on_initialize();
+    pub fn on_get_system_info( info: *mut libretro_sys::SystemInfo ) {
+        assert_ne!( info, ptr::null_mut() );
+        let info = unsafe { &mut *info };
+
+        // Pointers in SystemInfo have to be statically allocated,
+        // which is why we do this.
+        static mut INFO: Option< *const CoreInfo > = None;
+        let core_info = unsafe {
+            if INFO.is_none() {
+                INFO = Some( Box::into_raw( Box::new( B::info() ) ) );
+            }
+            INFO.map( |core_info| &*core_info ).unwrap()
+        };
+
+        info.library_name = core_info.library_name.as_ptr();
+        info.library_version = core_info.library_version.as_ptr();
+        info.valid_extensions = core_info.supported_romfile_extensions.as_ptr();
+        info.need_fullpath = core_info.require_path_when_loading_roms;
+        info.block_extract = core_info.allow_frontend_to_extract_archives == false;
     }
 
-    fn on_get_system_info( &mut self, info: &mut libretro_sys::SystemInfo ) {
-        info.library_name = self.core_info.library_name.as_ptr();
-        info.library_version = self.core_info.library_version.as_ptr();
-        info.valid_extensions = self.core_info.supported_romfile_extensions.as_ptr();
-        info.need_fullpath = self.core_info.require_path_when_loading_roms;
-        info.block_extract = self.core_info.allow_frontend_to_extract_archives == false;
+    pub fn on_set_environment( callback: libretro_sys::EnvironmentFn ) {
+        set_callback!( ENVIRONMENT_CALLBACK, callback );
     }
 
-    fn on_get_system_av_info( &mut self, info: &mut libretro_sys::SystemAvInfo ) {
+    pub fn on_set_video_refresh( &mut self, callback: libretro_sys::VideoRefreshFn ) {
+        set_callback!( self.video_refresh_callback, callback );
+    }
+
+    pub fn on_set_audio_sample( &mut self, callback: libretro_sys::AudioSampleFn ) {
+        set_callback!( self.audio_sample_callback, callback );
+    }
+
+    pub fn on_set_audio_sample_batch( &mut self, callback: libretro_sys::AudioSampleBatchFn ) {
+        set_callback!( self.audio_sample_batch_callback, callback );
+    }
+
+    pub fn on_set_input_poll( &mut self, callback: libretro_sys::InputPollFn ) {
+        set_callback!( self.input_poll_callback, callback );
+    }
+
+    pub fn on_set_input_state( &mut self, callback: libretro_sys::InputStateFn ) {
+        set_callback!( self.input_state_callback, callback );
+    }
+
+    pub fn on_get_system_av_info( &mut self, info: *mut libretro_sys::SystemAvInfo ) {
+        assert_ne!( info, ptr::null_mut() );
+        let info = unsafe { &mut *info };
+
         info.geometry.base_width = self.av_info.width as libc::c_uint;
         info.geometry.base_height = self.av_info.height as libc::c_uint;
         info.geometry.max_width = self.av_info.max_width as libc::c_uint;
@@ -273,8 +316,21 @@ impl Retro {
         info.timing.sample_rate = self.av_info.audio_sample_rate;
     }
 
-    fn on_load_game( &mut self, game_info: Option< &libretro_sys::GameInfo > ) -> bool {
+    pub fn on_set_controller_port_device( &mut self, _port: libc::c_uint, _device: libc::c_uint ) {
+    }
+
+    pub fn on_reset( &mut self ) {
+        self.backend.on_reset();
+    }
+
+    pub fn on_load_game( &mut self, game_info: *const libretro_sys::GameInfo ) -> bool {
         assert_eq!( self.is_game_loaded, false );
+
+        let game_info = if game_info == ptr::null() {
+            None
+        } else {
+            Some( unsafe { &*game_info } )
+        };
 
         let game_data = match game_info {
             Some( game_info ) => {
@@ -307,7 +363,7 @@ impl Retro {
             }
         };
 
-        let result = self.backend_mut().on_load_game( game_data );
+        let result = self.backend.on_load_game( game_data );
         match result {
             LoadGameResult::Success( av_info ) => {
                 self.av_info = av_info;
@@ -323,7 +379,11 @@ impl Retro {
         }
     }
 
-    fn on_run( &mut self ) {
+    pub fn on_load_game_special( &mut self, _game_type: libc::c_uint, _info: *const libretro_sys::GameInfo, _num_info: libc::size_t ) -> bool {
+        false
+    }
+
+    pub fn on_run( &mut self ) {
         let mut handle = RuntimeHandle {
             video_refresh_callback: self.video_refresh_callback.unwrap(),
             input_state_callback: self.input_state_callback.unwrap(),
@@ -343,7 +403,7 @@ impl Retro {
             self.input_poll_callback.unwrap()();
         }
 
-        self.backend_mut().on_run( &mut handle );
+        self.backend.on_run( &mut handle );
 
         self.total_audio_samples_uploaded += handle.audio_samples_uploaded;
         let required_audio_sample_count_per_frame = (self.av_info.audio_sample_rate / self.av_info.frames_per_second) * 2.0;
@@ -355,16 +415,42 @@ impl Retro {
         self.total_audio_samples_uploaded -= required_audio_sample_count_per_frame as usize;
     }
 
-    fn on_unload_game( &mut self ) {
+    pub fn on_serialize_size( &mut self ) -> libc::size_t {
+        0
+    }
+
+    pub fn on_serialize( &mut self, _data: *mut libc::c_void, _size: libc::size_t ) -> bool {
+        false
+    }
+
+    pub fn on_unserialize( &mut self, _data: *const libc::c_void, _size: libc::size_t ) -> bool {
+        false
+    }
+
+    pub fn on_cheat_reset( &mut self ) {
+    }
+
+    pub fn on_cheat_set( &mut self, _index: libc::c_uint, _is_enabled: bool, _code: *const libc::c_char ) {
+    }
+
+    pub fn on_unload_game( &mut self ) {
         if self.is_game_loaded == false {
             return;
         }
 
-        let _ = self.backend_mut().on_unload_game();
+        let _ = self.backend.on_unload_game();
     }
 
-    fn on_reset( &mut self ) {
-        self.backend_mut().on_reset();
+    pub fn on_get_region( &mut self ) -> libc::c_uint {
+        self.av_info.infer_game_region().to_uint()
+    }
+
+    pub fn on_get_memory_data( &mut self, _id: libc::c_uint ) -> *mut libc::c_void {
+        ptr::null_mut()
+    }
+
+    pub fn on_get_memory_size( &mut self, _id: libc::c_uint ) -> libc::size_t {
+        0
     }
 }
 
@@ -430,249 +516,190 @@ impl RuntimeHandle {
     }
 }
 
-static mut INSTANCE: *mut Retro = 0 as *mut Retro;
-
-fn ensure_instance_is_initialized() {
-    unsafe {
-        if INSTANCE != ptr::null_mut() {
-            return;
-        }
-        INSTANCE = Box::into_raw( Box::new( Retro::new() ));
-    }
-}
-
-fn instance() -> &'static mut Retro {
-    unsafe {
-        ensure_instance_is_initialized();
-        &mut *INSTANCE
-    }
-}
-
 #[doc(hidden)]
-pub unsafe fn initialize< T: 'static + Backend + Default >() {
-    let backend = T::default();
-    instance().backend = Some( Box::new( backend ) );
-    instance().on_initialize();
+pub fn construct< T: 'static + Backend >() -> Retro< T > {
+    Retro::new( T::default() )
 }
 
 #[macro_export]
 macro_rules! libretro_backend {
     ($backend: path) => (
         #[doc(hidden)]
+        static mut LIBRETRO_INSTANCE: *mut $crate::Retro< $backend > = 0 as *mut $crate::Retro< $backend >;
+
+        #[doc(hidden)]
         #[no_mangle]
-        pub extern "C" fn retro_init() {
-            unsafe {
-                $crate::initialize::< $backend >();
-            }
+        pub extern "C" fn retro_api_version() -> $crate::libc::c_uint {
+            return $crate::libretro_sys::API_VERSION;
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_init() {
+            assert_eq!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            let retro = $crate::construct::< $backend >();
+            LIBRETRO_INSTANCE = Box::into_raw( Box::new( retro ) );
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_deinit() {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            let instance = Box::from_raw( LIBRETRO_INSTANCE );
+            LIBRETRO_INSTANCE = 0 as *mut _;
+            ::std::mem::drop( instance );
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_environment( callback: $crate::libretro_sys::EnvironmentFn ) {
+            $crate::Retro::< $backend >::on_set_environment( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_video_refresh( callback: $crate::libretro_sys::VideoRefreshFn ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_video_refresh( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_audio_sample( callback: $crate::libretro_sys::AudioSampleFn ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_audio_sample( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_audio_sample_batch( callback: $crate::libretro_sys::AudioSampleBatchFn ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_audio_sample_batch( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_input_poll( callback: $crate::libretro_sys::InputPollFn ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_input_poll( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_input_state( callback: $crate::libretro_sys::InputStateFn ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_input_state( callback )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub extern "C" fn retro_get_system_info( info: *mut $crate::libretro_sys::SystemInfo ) {
+            $crate::Retro::< $backend >::on_get_system_info( info )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_get_system_av_info( info: *mut $crate::libretro_sys::SystemAvInfo ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_get_system_av_info( info )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_set_controller_port_device( port: $crate::libc::c_uint, device: $crate::libc::c_uint ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_set_controller_port_device( port, device )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_reset() {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_reset()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_run() {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_run()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_serialize_size() -> $crate::libc::size_t {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_serialize_size()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_serialize( data: *mut $crate::libc::c_void, size: $crate::libc::size_t ) -> bool {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_serialize( data, size )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_unserialize( data: *const $crate::libc::c_void, size: $crate::libc::size_t ) -> bool {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_unserialize( data, size )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_cheat_reset() {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_cheat_reset()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_cheat_set( index: $crate::libc::c_uint, is_enabled: bool, code: *const $crate::libc::c_char ) {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_cheat_set( index, is_enabled, code )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_load_game( game: *const $crate::libretro_sys::GameInfo ) -> bool {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_load_game( game )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_load_game_special( game_type: $crate::libc::c_uint, info: *const $crate::libretro_sys::GameInfo, num_info: $crate::libc::size_t ) -> bool {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_load_game_special( game_type, info, num_info )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_unload_game() {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_unload_game()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_get_region() -> $crate::libc::c_uint {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_get_region()
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_get_memory_data( id: $crate::libc::c_uint ) -> *mut $crate::libc::c_void {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_get_memory_data( id )
+        }
+
+        #[doc(hidden)]
+        #[no_mangle]
+        pub unsafe extern "C" fn retro_get_memory_size( id: $crate::libc::c_uint ) -> $crate::libc::size_t {
+            assert_ne!( LIBRETRO_INSTANCE, 0 as *mut _ );
+            (&mut *LIBRETRO_INSTANCE).on_get_memory_size( id )
         }
     )
-}
-
-macro_rules! set_callback {
-    ($output: expr, $input: expr) => (
-        unsafe {
-            if $input == mem::transmute( 0 as usize ) {
-                $output = None;
-            } else {
-                $output = Some( $input );
-            }
-        }
-    )
-}
-
-macro_rules! abort_on_panic {
-    ($code:expr) => ({
-        let result = panic::catch_unwind(|| {
-            $code
-        });
-
-        match result {
-            Err( _ ) => {
-                use std::process;
-                process::exit( 1 );
-            },
-            Ok( value ) => value
-        }
-    })
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_environment( callback: libretro_sys::EnvironmentFn ) {
-    set_callback!( instance().environment_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_video_refresh( callback: libretro_sys::VideoRefreshFn ) {
-    set_callback!( instance().video_refresh_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_audio_sample( callback: libretro_sys::AudioSampleFn ) {
-    set_callback!( instance().audio_sample_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_audio_sample_batch( callback: libretro_sys::AudioSampleBatchFn ) {
-    set_callback!( instance().audio_sample_batch_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_input_poll( callback: libretro_sys::InputPollFn ) {
-    set_callback!( instance().input_poll_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_input_state( callback: libretro_sys::InputStateFn ) {
-    set_callback!( instance().input_state_callback, callback );
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_deinit() {
-    let _ = panic::catch_unwind(|| {
-        instance().backend_mut().on_destroy();
-    });
-
-    unsafe {
-        let instance = Box::from_raw( INSTANCE );
-        INSTANCE = ptr::null_mut();
-        mem::drop( instance );
-    }
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_api_version() -> libc::c_uint {
-    return libretro_sys::API_VERSION;
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_get_system_info( info: *mut libretro_sys::SystemInfo ) {
-    assert!( info != ptr::null_mut() );
-
-    abort_on_panic!({
-        unsafe {
-            instance().on_get_system_info( &mut *info );
-        }
-    });
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_get_system_av_info( info: *mut libretro_sys::SystemAvInfo ) {
-    assert!( info != ptr::null_mut() );
-
-    abort_on_panic!({
-        unsafe {
-            instance().on_get_system_av_info( &mut *info );
-        }
-    });
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_set_controller_port_device( _: libc::c_uint, _: libc::c_uint ) {
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_reset() {
-    abort_on_panic!({
-        instance().on_reset();
-    });
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_run() {
-    abort_on_panic!({
-        instance().on_run();
-    });
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_serialize_size() -> libc::size_t {
-    0
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_serialize( _: *mut libc::c_void, _: libc::size_t ) -> bool {
-    false
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_unserialize( _: *const libc::c_void, _: libc::size_t ) -> bool {
-    false
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_cheat_reset() {
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_cheat_set( _: libc::c_uint, _: bool, _: *const libc::c_char ) {
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_load_game( game: *const libretro_sys::GameInfo ) -> bool {
-    if game == ptr::null() {
-        return false;
-    }
-
-    abort_on_panic!({
-        unsafe {
-            if game == ptr::null() {
-                instance().on_load_game( None )
-            } else {
-                instance().on_load_game( Some( &*game ) )
-            }
-        }
-    })
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_load_game_special( _: libc::c_uint, _: *const libretro_sys::GameInfo, _: libc::size_t ) -> bool {
-    false
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_unload_game() {
-    abort_on_panic!({
-        instance().on_unload_game()
-    });
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_get_region() -> libc::c_uint {
-    abort_on_panic!({
-        instance().av_info.infer_game_region().to_uint()
-    })
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_get_memory_data( _: libc::c_uint ) -> *mut libc::c_void {
-    ptr::null_mut()
-}
-
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn retro_get_memory_size( _: libc::c_uint ) -> libc::size_t {
-    0
 }
