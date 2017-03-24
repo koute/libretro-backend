@@ -25,7 +25,7 @@ Add this to your `Cargo.toml`:
 crate-type = ["cdylib"]
 
 [dependencies]
-libretro-backend = "0.1"
+libretro-backend = "0.2"
 ```
 
 and this to your crate root:
@@ -35,14 +35,14 @@ and this to your crate root:
 extern crate libretro_backend;
 ```
 
-then just implement the [Backend trait]:
+then just implement the [Core trait]:
 
 ```rust
 struct Emulator {
     // ...
 }
 
-impl libretro_backend::Backend for Emulator {
+impl libretro_backend::Core for Emulator {
     // ...
 }
 ```
@@ -50,17 +50,13 @@ impl libretro_backend::Backend for Emulator {
 and use a macro:
 
 ```rust
-libretro_backend!({
-    Box::new( Emulator {
-        // ...
-    })
-});
+libretro_core!( Emulator );
 ```
 
 For a full example you can check out [this file], which is part of my NES
 emulator [Pinky].
 
-[Backend trait]: https://docs.rs/libretro-backend/*/libretro_backend/trait.Backend.html
+[Core trait]: https://docs.rs/libretro-backend/*/libretro_backend/trait.Core.html
 [this file]: https://github.com/koute/pinky/blob/master/pinky-libretro/src/lib.rs
 [Pinky]: https://github.com/koute/pinky
 
