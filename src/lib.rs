@@ -11,17 +11,6 @@ use std::cmp::max;
 
 pub use libretro_sys::{PixelFormat, Region};
 
-fn to_cstring< T: AsRef< [u8] > + ?Sized >( input: &T ) -> CString {
-    let bytes = input.as_ref();
-    let mut vec = Vec::with_capacity( bytes.len() + 1 );
-    vec.extend_from_slice( bytes );
-    CString::new( vec ).unwrap()
-}
-
-fn empty_cstring() -> CString {
-    to_cstring( "" )
-}
-
 pub struct CoreInfo {
     library_name: CString,
     library_version: CString,
@@ -33,9 +22,9 @@ pub struct CoreInfo {
 impl CoreInfo {
     pub fn new( name: &str, version: &str ) -> CoreInfo {
         CoreInfo {
-            library_name: to_cstring( name ),
-            library_version: to_cstring( version ),
-            supported_romfile_extensions: empty_cstring(),
+            library_name: CString::new( name ).unwrap(),
+            library_version: CString::new( version ).unwrap(),
+            supported_romfile_extensions: CString::new( "" ).unwrap(),
             require_path_when_loading_roms: false,
             allow_frontend_to_extract_archives: true
         }
@@ -46,7 +35,7 @@ impl CoreInfo {
             extension = &extension[ 1.. ];
         }
 
-        let mut string = empty_cstring();
+        let mut string = CString::new( "" ).unwrap();
         mem::swap( &mut string, &mut self.supported_romfile_extensions );
 
         let mut vec = string.into_bytes();
