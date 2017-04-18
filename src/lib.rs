@@ -189,6 +189,18 @@ pub trait Core: Default {
     fn on_unload_game( &mut self ) -> GameData;
     fn on_run( &mut self, handle: &mut RuntimeHandle );
     fn on_reset( &mut self );
+    fn save_memory( &mut self ) -> Option< &mut [u8] > {
+        None
+    }
+    fn rtc_memory( &mut self ) -> Option< &mut [u8] > {
+        None
+    }
+    fn system_memory( &mut self ) -> Option< &mut [u8] > {
+        None
+    }
+    fn video_memory( &mut self ) -> Option< &mut [u8] > {
+        None
+    }
 }
 
 static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
@@ -434,12 +446,26 @@ impl< B: Core > Retro< B > {
         self.av_info.infer_game_region().to_uint()
     }
 
-    pub fn on_get_memory_data( &mut self, _id: libc::c_uint ) -> *mut libc::c_void {
-        ptr::null_mut()
+    fn memory_data( &mut self, id: libc::c_uint ) -> Option< &mut [u8] > {
+        match id {
+            libretro_sys::MEMORY_SAVE_RAM => self.core.save_memory(),
+            libretro_sys::MEMORY_RTC => self.core.rtc_memory(),
+            libretro_sys::MEMORY_SYSTEM_RAM => self.core.system_memory(),
+            libretro_sys::MEMORY_VIDEO_RAM => self.core.video_memory(),
+            _ => unreachable!(),
+        }
     }
 
-    pub fn on_get_memory_size( &mut self, _id: libc::c_uint ) -> libc::size_t {
-        0
+    pub fn on_get_memory_data( &mut self, id: libc::c_uint ) -> *mut libc::c_void {
+        self.memory_data( id )
+            .map( |d| d as *mut _ as *mut libc::c_void )
+            .unwrap_or( ptr::null_mut() )
+    }
+
+    pub fn on_get_memory_size( &mut self, id: libc::c_uint ) -> libc::size_t {
+        self.memory_data( id )
+            .map( |d| d.len() as libc::size_t )
+            .unwrap_or( 0 )
     }
 }
 
