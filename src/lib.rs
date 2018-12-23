@@ -183,8 +183,23 @@ pub enum JoypadButton {
     R3
 }
 
+pub struct EnvCallback;
+
+impl EnvCallback {
+    pub unsafe fn call_environment< T >(&self, command: libc::c_uint, pointer: &T ) -> Result< (), () > {
+        let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
+        if ok {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
 pub trait Core: Default {
     fn info() -> CoreInfo;
+    fn on_set_environment(_cb: EnvCallback) {
+    }
     fn on_load_game( &mut self, game_data: GameData ) -> LoadGameResult;
     fn on_unload_game( &mut self ) -> GameData;
     fn on_run( &mut self, handle: &mut RuntimeHandle );
@@ -282,6 +297,7 @@ impl< B: Core > Retro< B > {
 
     pub fn on_set_environment( callback: libretro_sys::EnvironmentFn ) {
         set_callback!( ENVIRONMENT_CALLBACK, callback );
+        B::on_set_environment(EnvCallback);
     }
 
     pub fn on_set_video_refresh( &mut self, callback: libretro_sys::VideoRefreshFn ) {
