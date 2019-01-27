@@ -205,6 +205,16 @@ pub trait Core: Default {
 
 static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
 
+#[must_use]
+pub unsafe fn call_environment< T >(command: libc::c_uint, pointer: &T ) -> Result< (), () > {
+    let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
+    if ok {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 #[doc(hidden)]
 pub struct Retro< B: Core > {
     video_refresh_callback: Option< libretro_sys::VideoRefreshFn >,
@@ -246,16 +256,6 @@ impl< B: Core > Retro< B > {
             is_game_loaded: false,
             av_info: AudioVideoInfo::new(),
             total_audio_samples_uploaded: 0
-        }
-    }
-
-    #[must_use]
-    unsafe fn call_environment< T >( &mut self, command: libc::c_uint, pointer: &T ) -> Result< (), () > {
-        let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
-        if ok {
-            Ok(())
-        } else {
-            Err(())
         }
     }
 
@@ -370,7 +370,7 @@ impl< B: Core > Retro< B > {
                 self.av_info = av_info;
                 unsafe {
                     let pixel_format = self.av_info.pixel_format;
-                    self.call_environment( libretro_sys::ENVIRONMENT_SET_PIXEL_FORMAT, &pixel_format ).unwrap();
+                    call_environment( libretro_sys::ENVIRONMENT_SET_PIXEL_FORMAT, &pixel_format ).unwrap();
                 }
 
                 self.is_game_loaded = true;
