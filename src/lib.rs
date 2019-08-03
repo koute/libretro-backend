@@ -484,14 +484,15 @@ pub struct RuntimeHandle {
 impl RuntimeHandle {
     pub fn upload_video_frame( &mut self, data: &[u8] ) {
         assert!( self.upload_video_frame_already_called == false, "You can only call upload_video_frame() once per frame!" );
+        assert!( data.len() as u32 >= self.video_width * self.video_height * self.video_frame_bytes_per_pixel, "Data too small to upload!" );
 
         self.upload_video_frame_already_called = true;
         let bytes = data.as_ptr() as *const libc::c_void;
         let width = self.video_width as libc::c_uint;
         let height = self.video_height as libc::c_uint;
-        let bytes_per_pixel = (self.video_width * self.video_frame_bytes_per_pixel) as usize;
+        let bytes_per_line = (self.video_width * self.video_frame_bytes_per_pixel) as usize;
         unsafe {
-            (self.video_refresh_callback)( bytes, width, height, bytes_per_pixel );
+            (self.video_refresh_callback)( bytes, width, height, bytes_per_line );
         }
     }
 
