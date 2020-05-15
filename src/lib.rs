@@ -203,6 +203,31 @@ pub trait Core: Default {
     }
 }
 
+#[inline]
+#[doc(hidden)]
+unsafe fn call_environment< T >( command: libc::c_uint, pointer: &T ) -> Result< (), () > {
+    let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
+    if ok {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+/// Safe wrappers around libretro enviornment commands
+pub mod environment {
+    use super::*;
+
+    /// Wrapper for RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+    /// Returns an owned rust String
+    pub fn get_system_directory() -> Option<String> {
+        let ptr: *const libc::c_char = std::ptr::null();
+        unsafe { call_environment( libretro_sys::ENVIRONMENT_GET_SYSTEM_DIRECTORY, &ptr ).expect("ENVIRONMENT_GET_SYSTEM_DIRECTORY failed") };
+        unsafe { CStr::from_ptr( ptr ).to_str().ok().map( |path| path.to_owned() ) }
+    }
+
+}
+
 static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
 
 #[doc(hidden)]
@@ -251,12 +276,7 @@ impl< B: Core > Retro< B > {
 
     #[must_use]
     unsafe fn call_environment< T >( &mut self, command: libc::c_uint, pointer: &T ) -> Result< (), () > {
-        let ok = ENVIRONMENT_CALLBACK.unwrap()( command, mem::transmute( pointer ) );
-        if ok {
-            Ok(())
-        } else {
-            Err(())
-        }
+        call_environment(command, pointer)
     }
 
     pub fn on_get_system_info( info: *mut libretro_sys::SystemInfo ) {
