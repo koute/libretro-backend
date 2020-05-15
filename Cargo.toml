@@ -13,9 +13,14 @@ Idiomatic Rust API bindings to the libretro API
 [dependencies]
 "libc" = "0.2"
 "libretro-sys" = "0.1"
+"log" = { version = "0.4.8", features = ["std"], optional = true }
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[features]
+default = ["logging"]
+logging = ["log"]
