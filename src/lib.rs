@@ -3,6 +3,9 @@ pub extern crate libc;
 #[doc(hidden)]
 pub extern crate libretro_sys;
 
+extern crate log;
+use log::{Record, Level, Metadata};
+
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -205,6 +208,59 @@ pub trait Core: Default {
 
 static mut ENVIRONMENT_CALLBACK: Option< libretro_sys::EnvironmentFn > = None;
 
+#[cfg(feature = "logging")]
+struct RetroLogger {
+    log_level: Level,
+    #[doc(hidden)]
+    retro_api_log_level: libretro_sys::LogLevel,
+    #[doc(hidden)]
+    callback: libretro_sys::LogCallback,
+}
+
+#[cfg(feature = "logging")]
+impl RetroLogger {
+    fn new(callback: libretro_sys::LogCallback) -> RetroLogger {
+        RetroLogger {
+            callback: callback,
+            log_level: Level::Debug,
+            retro_api_log_level: libretro_sys::LogLevel::Debug,
+        }
+    }
+
+    #[allow(unused)]
+    fn set_log_level(&mut self, level: libretro_sys::LogLevel) {
+        self.retro_api_log_level = level;
+        use libretro_sys::LogLevel as RetroLevel;
+        self.log_level = match level {
+            RetroLevel::Debug => Level::Debug,
+            RetroLevel::Info => Level::Info,
+            RetroLevel::Warn => Level::Warn,
+            RetroLevel::Error => Level::Error,
+        };
+    }
+}
+
+#[cfg(feature = "logging")]
+impl log::Log for RetroLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= self.log_level
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let message = format!("{} - {}\n", record.level(), record.args());
+            unsafe {
+                (self.callback.log)(
+                    self.retro_api_log_level,
+                    message.as_ptr() as *const libc::c_char,
+                )
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 #[doc(hidden)]
 pub struct Retro< B: Core > {
     video_refresh_callback: Option< libretro_sys::VideoRefreshFn >,
@@ -248,6 +304,22 @@ impl< B: Core > Retro< B > {
             total_audio_samples_uploaded: 0
         }
     }
+
+    #[cfg(feature = "logging")]
+    pub fn init_logging(&mut self) {
+        use std::mem::MaybeUninit;
+        let callback = MaybeUninit::<libretro_sys::LogCallback>::uninit();
+        let callback = unsafe {
+            self.call_environment(libretro_sys::ENVIRONMENT_GET_LOG_INTERFACE, &callback).expect("failed to get log interface");
+            callback.assume_init()
+        };
+        let logger = RetroLogger::new(callback);
+        log::set_max_level(log::LevelFilter::Debug); // There is no `Trace` equivalent in the libretro LogLevel enum
+        log::set_boxed_logger(Box::new(logger)).expect("could not set logger");
+    }
+
+    #[cfg(not(feature = "logging"))]
+    pub fn init_logging(&mut self) {}
 
     #[must_use]
     unsafe fn call_environment< T >( &mut self, command: libc::c_uint, pointer: &T ) -> Result< (), () > {
@@ -553,7 +625,8 @@ macro_rules! libretro_core {
         #[no_mangle]
         pub unsafe extern "C" fn retro_init() {
             assert_eq!( LIBRETRO_INSTANCE, 0 as *mut _ );
-            let retro = $crate::construct::< $core >();
+            let mut retro = $crate::construct::< $core >();
+            retro.init_logging();
             LIBRETRO_INSTANCE = Box::into_raw( Box::new( retro ) );
         }
 
